@@ -3,10 +3,9 @@ import socket
 import ssl
 import hashlib
 import requests
-from cryptography.hazmat.primitives import serialization
-from cryptography import x509
 import os
 import logging
+from cryptography import x509
 
 # Setup script directory and logging
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,23 +16,13 @@ logging.basicConfig(filename=log_file, level=logging.INFO,
 def log_result(old_hash, new_hash, result):
     logging.info(f"Old Hash Value: {old_hash}, New Hash Value: {new_hash}, Result: {result}")
 
-def get_tls_certificate(host, port):
+def get_tls_certificate_hash(host, port):
     context = ssl.create_default_context()
-    conn = context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host)
-    conn.connect((host, port))
-    cert = conn.getpeercert(binary_form=True)
-    conn.close()
-    return cert
-
-def get_public_key_hash(certificate):
-    cert = x509.load_der_x509_certificate(certificate)
-    public_key = cert.public_key()
-    public_key_bytes = public_key.public_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    hash_sha256 = hashlib.sha256(public_key_bytes).hexdigest()
-    return hash_sha256
+    with context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host) as conn:
+        conn.connect((host, port))
+        cert_bin = conn.getpeercert(binary_form=True)
+        sha256_hash = hashlib.sha256(cert_bin).hexdigest()
+        return sha256_hash
 
 def verify_cloudflare_token(api_token):
     url = "https://api.cloudflare.com/client/v4/user/tokens/verify"
@@ -106,15 +95,14 @@ def main():
             return
 
     port = 443
-    certificate = get_tls_certificate(hostname, port)
-    public_key_hash = get_public_key_hash(certificate)
+    certificate_hash = get_tls_certificate_hash(hostname, port)
     latest_value = config['TLSA'].get('latest_value')
     result = "Unchanged"
 
-    if latest_value != public_key_hash:
-        status_code, response = update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, f"3 1 1 {public_key_hash}")
+    if latest_value != certificate_hash:
+        status_code, response = update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, f"3 1 1 {certificate_hash}")
         if status_code == 200:
-            config.set('TLSA', 'latest_value', public_key_hash)
+            config.set('TLSA', 'latest_value', certificate_hash)
             with open(config_path, 'w') as configfile:
                 config.write(configfile)
             result = "Changed"
@@ -122,7 +110,7 @@ def main():
             result = "Error"
             logging.error(f"Failed to update TLSA record: {response}")
 
-    log_result(latest_value, public_key_hash, result)
+    log_result(latest_value, certificate_hash, result)
 
 if __name__ == "__main__":
     main()
