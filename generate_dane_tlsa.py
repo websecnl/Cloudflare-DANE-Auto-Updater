@@ -1,3 +1,4 @@
+# Nothing special, just a code to create you the record for DNS TLSA
 import socket
 import ssl
 import hashlib
