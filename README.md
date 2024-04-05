@@ -36,3 +36,7 @@ To address these challenges and effectively implement DANE with Google Workspace
 This guide and the associated automation tool offer a practical solution for businesses facing the challenge of implementing DANE with Google Workspace. By leveraging Cloudflare's mail routing to forward emails to an alternative account and retrieving those emails via POP, businesses can comply with DANE's security protocols without losing the functionality of their primary Gmail account. This workaround highlights a creative approach to overcoming the limitations of current email service providers in supporting DANE directly, ensuring businesses do not have to compromise on security or email functionality.
 
 For full details on the automation script and additional setup instructions, please refer to the further documentation within this repository.
+
+## FYI
+
+This script will work assuming you need a 3 1 1 config for your TLS cert (Port 443)
