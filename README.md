@@ -8,9 +8,8 @@ Implementing DANE for email services, particularly with Google Workspace, involv
 
 ### Core Challenges:
 
-1. **DANE Configuration Nuances**: DANE requires DNS adjustments, including TLSA record addition and DNSSEC activation. For email services like Google's, which may not fully support DANE, this poses a unique challenge as you cannot directly influence their server configurations.
-
-2. **Mail Server Constraints**: The lack of DANE support (DNSSEC and TLSA records) on your email server can significantly limit your ability to use DANE, as these configurations are typically managed by the email service provider.
+1. **DANE Configuration Nuances / Mail Server Constraints**: DANE requires DNS adjustments, including TLSA record addition and DNSSEC activation. For email services like Google's, which may not fully support DANE, this poses a unique challenge as you cannot directly influence their server configurations.
+The lack of DANE support (DNSSEC and TLSA records) on your email server can significantly limit your ability to use DANE, as these configurations are typically managed by the email service provider.
 
 3. **Implications for Email Reception**: The primary issue with DANE and Google Workspace is the interruption of direct email delivery to your primary business account. Adjustments in email routing are necessary for DANE compliance but result in the inability to receive emails directly.
 
