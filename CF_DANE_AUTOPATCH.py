@@ -6,10 +6,16 @@ import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography import x509
 import os
+import logging
 
-# Determine the script directory and config file path
+# Setup script directory and logging
 script_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(script_dir, 'config.ini')
+log_file = os.path.join(script_dir, 'history.log')
+logging.basicConfig(filename=log_file, level=logging.INFO,
+                    format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+
+def log_result(old_hash, new_hash, result):
+    logging.info(f"Old Hash Value: {old_hash}, New Hash Value: {new_hash}, Result: {result}")
 
 def get_tls_certificate(host, port):
     context = ssl.create_default_context()
@@ -48,13 +54,13 @@ def fetch_and_list_tlsa_records(api_token, zone_id):
     if response.status_code == 200 and response.json().get('success'):
         tlsa_records = response.json().get('result', [])
         if not tlsa_records:
-            print("No TLSA records found.")
+            logging.info("No TLSA records found.")
             return None
         for i, record in enumerate(tlsa_records, start=1):
             print(f"{i}. {record['name']} (ID: {record['id']})")
         return tlsa_records
     else:
-        print("Failed to fetch TLSA records.")
+        logging.error("Failed to fetch TLSA records.")
         return None
 
 def update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, new_tlsa_value):
@@ -73,17 +79,18 @@ def update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, new_tl
 
 def main():
     config = configparser.ConfigParser()
-    config.read(config_path)  # Updated to use the absolute path
+    config_path = os.path.join(script_dir, 'config.ini')
+    config.read(config_path)
 
     api_token = config['API']['token']
     if not verify_cloudflare_token(api_token):
-        print("Provided Cloudflare API token is invalid. Please check your token and try again.")
+        logging.error("Provided Cloudflare API token is invalid.")
         return
 
     zone_id = config['Cloudflare']['zone_id']
     hostname = config['TLSA']['hostname']
     selector = config['TLSA']['selector']
-    record_name = f"{selector}.{hostname}"  # Construct the full DNS record name
+    record_name = f"{selector}.{hostname}"
 
     dns_record_id = config['TLSA'].get('dns_record_id')
     if not dns_record_id:
@@ -92,32 +99,30 @@ def main():
             choice = int(input("Which TLSA ID would you like to save to config.ini? Enter the number: ")) - 1
             selected_record = tlsa_records[choice]
             config.set('TLSA', 'dns_record_id', selected_record['id'])
-            with open(config_path, 'w') as configfile:  # Use config_path
+            with open(config_path, 'w') as configfile:
                 config.write(configfile)
-            print(f"Saved TLSA record ID: {selected_record['id']} to config.ini.")
-            dns_record_id = selected_record['id']
+            logging.info(f"Selected TLSA record ID: {selected_record['id']} saved to config.ini.")
         else:
-            print("No TLSA records found or unable to fetch records. Exiting...")
             return
 
-    port = 443  # Assuming TLS
+    port = 443
     certificate = get_tls_certificate(hostname, port)
     public_key_hash = get_public_key_hash(certificate)
-    new_tlsa_value = f"3 1 1 {public_key_hash}"
-
     latest_value = config['TLSA'].get('latest_value')
+    result = "Unchanged"
+
     if latest_value != public_key_hash:
-        print(f"Updating TLSA record for {hostname}...")
-        status_code, response = update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, new_tlsa_value)
+        status_code, response = update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, f"3 1 1 {public_key_hash}")
         if status_code == 200:
-            print("TLSA record updated successfully.")
             config.set('TLSA', 'latest_value', public_key_hash)
-            with open(config_path, 'w') as configfile:  # Use config_path
+            with open(config_path, 'w') as configfile:
                 config.write(configfile)
+            result = "Changed"
         else:
-            print(f"Failed to update TLSA record: {response}")
-    else:
-        print("TLSA record is up to date; no update needed.")
+            result = "Error"
+            logging.error(f"Failed to update TLSA record: {response}")
+
+    log_result(latest_value, public_key_hash, result)
 
 if __name__ == "__main__":
     main()
