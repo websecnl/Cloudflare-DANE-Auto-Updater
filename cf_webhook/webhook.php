@@ -1,3 +1,7 @@
+// 1. In cloudflare under Notifications / Destinations create a webhook to this file on your server
+// 2. In cloudflare under Notifications add new Notification for  'TLS/SSL' either Universal or Dedicated Certificate renewal
+// 3. Now the update TLSA script will trigger automatically every time the certificate changes :-)
+
 <?php
 
 // Your shared secret token for verification
