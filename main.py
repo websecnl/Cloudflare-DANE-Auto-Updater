@@ -1,4 +1,3 @@
-
 import configparser
 import socket
 import ssl
@@ -12,11 +11,13 @@ import logging
 # Setup script directory and logging
 script_dir = os.path.dirname(os.path.abspath(__file__))
 log_file = os.path.join(script_dir, 'history.log')
-logging.basicConfig(filename=log_file, level=logging.INFO,
-                    format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+logging.basicConfig(filename=log_file, level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-def log_result(old_hash, new_hash, result):
-    logging.info(f"Old Hash Value: {old_hash}, New Hash Value: {new_hash}, Result: {result}")
+def log_result(old_hash, new_hash, result, additional_info=None):
+    log_message = f"Old Hash Value: {old_hash}, New Hash Value: {new_hash}, Result: {result}"
+    if additional_info:
+        log_message += f", Additional Info: {additional_info}"
+    logging.info(log_message)
 
 def get_tls_certificate(host, port):
     context = ssl.create_default_context()
@@ -34,18 +35,10 @@ def get_public_key_hash(certificate):
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
     hash_sha256 = hashlib.sha256(public_key_bytes).hexdigest()
+    logging.info(f"Generated public_key_hash: {hash_sha256}")  # Log the generated hash for verification
     return hash_sha256
 
-def verify_cloudflare_token(api_token):
-    url = "https://api.cloudflare.com/client/v4/user/tokens/verify"
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
-    }
-    response = requests.get(url, headers=headers)
-    return response.status_code == 200 and response.json().get('success')
-
-def fetch_and_list_tlsa_records(api_token, zone_id):
+def fetch_and_select_tlsa_record(api_token, zone_id):
     url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records?type=TLSA"
     headers = {
         "Authorization": f"Bearer {api_token}",
@@ -53,18 +46,21 @@ def fetch_and_list_tlsa_records(api_token, zone_id):
     }
     response = requests.get(url, headers=headers)
     if response.status_code == 200 and response.json().get('success'):
-        tlsa_records = response.json().get('result', [])
-        if not tlsa_records:
+        records = response.json().get('result', [])
+        if records:
+            for i, record in enumerate(records, start=1):
+                print(f"{i}. {record['name']} (ID: {record['id']}): {record['content']}")
+            choice = int(input("Enter the number of the TLSA record you wish to update: ")) - 1
+            return records[choice]['id']
+        else:
             logging.info("No TLSA records found.")
             return None
-        for i, record in enumerate(tlsa_records, start=1):
-            print(f"{i}. {record['name']} (ID: {record['id']})")
-        return tlsa_records
     else:
         logging.error("Failed to fetch TLSA records.")
         return None
 
-def update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, new_tlsa_value):
+def update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, public_key_hash):
+    logging.info(f"Using public_key_hash for update: {public_key_hash}")  # Log for verification
     url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{dns_record_id}"
     headers = {
         "Authorization": f"Bearer {api_token}",
@@ -73,9 +69,17 @@ def update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, new_tl
     data = {
         "type": "TLSA",
         "name": record_name,
-        "content": new_tlsa_value
+        "ttl": 1,
+        "data": {
+            "usage": 3,
+            "selector": 1,
+            "matching_type": 1,
+            "certificate": public_key_hash
+        }
     }
-    response = requests.patch(url, json=data, headers=headers)
+
+    response = requests.put(url, json=data, headers=headers)
+    logging.info(f"Cloudflare DNS update (overwrite) response: Status Code: {response.status_code}, Content: {response.json()}")
     return response.status_code, response.json()
 
 def main():
@@ -84,46 +88,37 @@ def main():
     config.read(config_path)
 
     api_token = config['API']['token']
-    if not verify_cloudflare_token(api_token):
-        logging.error("Provided Cloudflare API token is invalid.")
-        return
-
     zone_id = config['Cloudflare']['zone_id']
     hostname = config['TLSA']['hostname']
-    selector = config['TLSA']['selector']
-    record_name = f"{selector}.{hostname}"
-
+    port = 443
     dns_record_id = config['TLSA'].get('dns_record_id')
+
     if not dns_record_id:
-        tlsa_records = fetch_and_list_tlsa_records(api_token, zone_id)
-        if tlsa_records:
-            choice = int(input("Which TLSA ID would you like to save to config.ini? Enter the number: ")) - 1
-            selected_record = tlsa_records[choice]
-            config.set('TLSA', 'dns_record_id', selected_record['id'])
+        dns_record_id = fetch_and_select_tlsa_record(api_token, zone_id)
+        if dns_record_id:
+            config.set('TLSA', 'dns_record_id', dns_record_id)
             with open(config_path, 'w') as configfile:
                 config.write(configfile)
-            logging.info(f"Selected TLSA record ID: {selected_record['id']} saved to config.ini.")
         else:
+            print("Unable to find or select a TLSA record for update.")
             return
 
-    port = 443
+    record_name = f"_443._tcp.{hostname}"
     certificate = get_tls_certificate(hostname, port)
     public_key_hash = get_public_key_hash(certificate)
-    latest_value = config['TLSA'].get('latest_value')
-    result = "Unchanged"
+    latest_value = config['TLSA'].get('latest_value', '')
 
     if latest_value != public_key_hash:
-        status_code, response = update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, f"3 1 1 {public_key_hash}")
-        if status_code == 200:
+        status_code, response = update_cloudflare_dns(api_token, zone_id, dns_record_id, record_name, public_key_hash)
+        if status_code == 200 and response['success'] and 'result' in response and response['result'].get('data', {}).get('certificate') == public_key_hash:
             config.set('TLSA', 'latest_value', public_key_hash)
             with open(config_path, 'w') as configfile:
                 config.write(configfile)
-            result = "Changed"
+            log_result(latest_value, public_key_hash, "Changed", additional_info=f"Cloudflare Update Response: {response}")
         else:
-            result = "Error"
-            logging.error(f"Failed to update TLSA record: {response}")
-
-    log_result(latest_value, public_key_hash, result)
+            log_result(latest_value, public_key_hash, "Failed to change", additional_info=f"Cloudflare Update Response: {response}")
+    else:
+        log_result(latest_value, public_key_hash, "Unchanged")
 
 if __name__ == "__main__":
     main()
