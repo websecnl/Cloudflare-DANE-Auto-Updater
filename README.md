@@ -35,6 +35,16 @@ To address these challenges and effectively implement DANE with Google Workspace
 
 5. **Automate TLSA Record Updates**: Use the provided script to automate the updating of your domain's TLSA record in Cloudflare in response to certificate changes. This script should be run as a scheduled task (cron job) to ensure your DNS remains in compliance with DANE's requirements without manual intervention.
 
+## Setup Script
+
+1. Just extract the script anywhere, for example; /root/dane/  (Replace this with your real folder)
+2. Add a to crontab, this will execute the script every 12 hours. 
+
+```bash
+echo "0 */12 * * * python3.8 /home/dane/CF_DANE_AUTOPATCH.py" | sudo tee -a /etc/crontab > /dev/null
+```
+3. Now the Cloudflare Certificate rotation will no longer be a problem and you can setup DANE together with cloudflare :-)
+
 ## Concluding Remarks
 
 This guide and the associated automation tool offer a practical solution for businesses facing the challenge of implementing DANE with Google Workspace. By leveraging Cloudflare's mail routing to forward emails to an alternative account and retrieving those emails via POP, businesses can comply with DANE's security protocols without losing the functionality of their primary Gmail account. This workaround highlights a creative approach to overcoming the limitations of current email service providers in supporting DANE directly, ensuring businesses do not have to compromise on security or email functionality.
