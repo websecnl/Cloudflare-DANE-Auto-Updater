@@ -2,6 +2,10 @@
 
 Welcome to the Cloudflare-DANE-Auto-Updater repository, a solution specifically crafted for businesses looking to enhance their email security through DANE while leveraging Cloudflare for DNS management and coping with the limitations of using Google Workspace for business email.
 
+
+![image](https://github.com/user-attachments/assets/05e7ce1f-d607-403a-8be3-f1a0efcea8fe)
+
+
 ## The DANE Challenge with Google Workspace
 
 Implementing DANE for email services, particularly with Google Workspace, involves navigating a complex landscape of DNS and email security configurations. This guide is born out of the need to address a common problem: the inability to directly receive emails on your primary business account due to DANE's stringent security requirements, and how Cloudflare's mail routing feature can provide a viable workaround.
